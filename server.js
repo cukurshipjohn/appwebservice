@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 const {
     default: makeWASocket,
     DisconnectReason,
@@ -22,8 +24,19 @@ app.use(express.json());
 let sock = null;
 let isConnected = false;
 let connectionStatus = 'disconnected';
-let latestQR = null; // simpan QR terbaru sebagai string
+let latestQR = null;
 let reconnectAttempts = 0;
+
+// ── Hapus session auth_info_baileys ──────────────────────
+function clearAuthSession() {
+    const authDir = path.join(__dirname, 'auth_info_baileys');
+    if (fs.existsSync(authDir)) {
+        fs.readdirSync(authDir).forEach(file => {
+            try { fs.unlinkSync(path.join(authDir, file)); } catch (_) {}
+        });
+        console.log('🗑️  Session auth_info_baileys berhasil dibersihkan.');
+    }
+}
 
 // ── Baileys Connection ───────────────────────────────────
 async function connectToWhatsApp() {
@@ -64,7 +77,10 @@ async function connectToWhatsApp() {
 
             if (isLoggedOut) {
                 connectionStatus = 'logged_out';
-                console.log('⚠️  Sesi WA logout. Hapus folder auth_info_baileys dan restart server.');
+                console.log('⚠️  Sesi WA logout. Membersihkan sesi dan meminta scan ulang...');
+                clearAuthSession();
+                // Reconnect otomatis untuk generate QR baru
+                setTimeout(connectToWhatsApp, 2000);
             } else {
                 connectionStatus = 'disconnected';
                 const delay = Math.min(3000 * reconnectAttempts, 30000); // max 30 detik
@@ -176,7 +192,14 @@ app.post('/send-otp', validateSecret, async (req, res) => {
             `⏱️ Berlaku selama *5 menit*.\n` +
             `⚠️ Jangan bagikan kode ini ke siapapun.`;
 
-        await sock.sendMessage(jid, { text: message });
+        // Wrap Baileys sendMessage with a 5-second timeout to prevent indefinite hanging (ECONNRESET)
+        const sendMessagePromise = sock.sendMessage(jid, { text: message });
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout mengirim pesan WhatsApp (Socket Half-Open)')), 5000)
+        );
+        
+        await Promise.race([sendMessagePromise, timeoutPromise]);
+        
         console.log(`✅ OTP terkirim ke ${phoneNumber}`);
         return res.json({ success: true, message: 'OTP berhasil terkirim.' });
     } catch (error) {
@@ -206,7 +229,15 @@ app.post('/send-message', validateSecret, async (req, res) => {
 
     try {
         const jid = formatPhoneForWA(phoneNumber);
-        await sock.sendMessage(jid, { text: message });
+        
+        // Wrap Baileys sendMessage with a 5-second timeout
+        const sendMessagePromise = sock.sendMessage(jid, { text: message });
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout mengirim pesan WhatsApp (Socket Half-Open)')), 5000)
+        );
+        
+        await Promise.race([sendMessagePromise, timeoutPromise]);
+        
         console.log(`✅ Pesan terkirim ke ${phoneNumber}`);
         return res.json({ success: true, message: 'Pesan berhasil terkirim.' });
     } catch (error) {
@@ -215,6 +246,30 @@ app.post('/send-message', validateSecret, async (req, res) => {
             success: false,
             message: 'Gagal mengirim pesan.',
         });
+    }
+});
+
+// Reset sesi WhatsApp (hapus auth + reconnect untuk QR baru)
+app.post('/reset-session', validateSecret, async (req, res) => {
+    try {
+        // Tutup koneksi lama jika ada
+        if (sock) {
+            try { await sock.logout(); } catch (_) {}
+            try { sock.end(); } catch (_) {}
+            sock = null;
+        }
+        isConnected = false;
+        connectionStatus = 'resetting';
+        latestQR = null;
+
+        clearAuthSession();
+
+        // Reconnect → generate QR baru
+        setTimeout(connectToWhatsApp, 1500);
+
+        res.json({ success: true, message: 'Sesi WA direset. Buka /qr untuk scan ulang.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Gagal reset sesi: ' + err.message });
     }
 });
 
