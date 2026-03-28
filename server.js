@@ -360,6 +360,108 @@ app.get('/health', (req, res) => {
     });
 });
 
+// ── QR Web Viewer ─────────────────────────────────────────
+// Halaman HTML mandiri untuk scan QR WhatsApp langsung dari browser.
+// Alasan dibuat di sini (bukan di Next.js):
+//   → Saat WA belum konek, superadmin tidak bisa login ke Next.js (butuh OTP via WA)
+//   → Dengan endpoint ini, cukup akses URL Railway + secret di browser → QR langsung terlihat
+//   → Dilindungi INTERNAL_SECRET di query param → tidak bisa diakses publik
+// Cara akses: https://your-railway-url.railway.app/qr-web?secret=INTERNAL_SECRET
+app.get('/qr-web', (req, res) => {
+    const { secret, session_id = 'default' } = req.query;
+
+    // Validasi secret via query param (bukan header, karena diakses dari browser biasa)
+    if (secret !== INTERNAL_SECRET) {
+        return res.status(403).send(`
+            <html><body style="background:#0a0a0a;color:#ef4444;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+                <div style="text-align:center"><div style="font-size:48px">🔒</div><h2>403 Unauthorized</h2><p>Secret tidak valid.</p></div>
+            </body></html>
+        `);
+    }
+
+    const sessionData = sessions.get(session_id);
+    const status = sessionData?.status || 'not_initialized';
+    const phone = sessionData?.phone || null;
+
+    // Kirim halaman HTML lengkap — auto-refresh tiap 3 detik via fetch internal
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CukurShip — WA Login</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#0a0a0a;color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center}
+    .card{background:#111;border:1px solid #222;border-radius:20px;padding:40px;width:360px;text-align:center;box-shadow:0 0 60px rgba(251,191,36,.08)}
+    h1{font-size:18px;color:#fbbf24;margin:8px 0 4px}
+    p{color:#666;font-size:12px;margin-bottom:24px}
+    #qr-box{width:260px;height:260px;margin:0 auto 20px;background:#1a1a1a;border-radius:16px;border:2px solid #222;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    #qr-box img{width:100%;height:100%;border-radius:14px}
+    .badge{display:inline-block;padding:5px 14px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:16px}
+    .amber{background:#1a1200;color:#fbbf24;border:1px solid #fbbf2433}
+    .green{background:#001a0a;color:#22c55e;border:1px solid #22c55e33}
+    .red{background:#1a0000;color:#ef4444;border:1px solid #ef444433}
+    .spin{width:36px;height:36px;border:3px solid #222;border-top-color:#fbbf24;border-radius:50%;animation:spin .8s linear infinite;margin:auto}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    #info{color:#555;font-size:11px;margin-top:12px}
+  </style>
+</head>
+<body>
+<div class="card">
+  <div style="font-size:32px">✂️</div>
+  <h1>CukurShip WA Login</h1>
+  <p>Scan QR ini dengan WhatsApp untuk menghubungkan sesi default</p>
+  <span id="badge" class="badge amber">⏳ Memuat...</span>
+  <div id="qr-box"><div class="spin"></div></div>
+  <div id="info">Auto-refresh tiap 3 detik</div>
+</div>
+<script>
+  const SECRET = ${JSON.stringify(secret)};
+  const SID    = ${JSON.stringify(session_id)};
+  const badge  = document.getElementById('badge');
+  const qrBox  = document.getElementById('qr-box');
+  const info   = document.getElementById('info');
+
+  async function poll() {
+    try {
+      const r = await fetch('/session/qr/' + SID, { headers: { 'x-internal-secret': SECRET } });
+      const d = await r.json();
+
+      if (d.status === 'connected') {
+        badge.className = 'badge green';
+        badge.textContent = '✅ Terhubung!';
+        qrBox.innerHTML = '<span style="font-size:48px">✅</span>';
+        info.textContent = '📱 ' + (d.phone || '') + ' — WhatsApp berhasil terhubung. Halaman ini bisa ditutup.';
+        return;
+      }
+
+      if (d.qr) {
+        badge.className = 'badge amber';
+        badge.textContent = '📱 Scan QR sekarang!';
+        qrBox.innerHTML = '<img src="' + d.qr + '" alt="QR"/>';
+        info.textContent = 'QR diperbarui otomatis. Buka WA → Settings → Linked Devices → Link a Device';
+      } else {
+        badge.className = 'badge amber';
+        badge.textContent = '⏳ Menunggu QR...';
+        qrBox.innerHTML = '<div class="spin"></div>';
+        info.textContent = 'Status: ' + (d.status || 'unknown');
+      }
+    } catch(e) {
+      badge.className = 'badge red';
+      badge.textContent = '❌ Gagal terhubung ke server';
+      info.textContent = e.message;
+    }
+    setTimeout(poll, 3000);
+  }
+  poll();
+</script>
+</body></html>`);
+});
+
+
+
 // ── RECOVERY OLD SESSIONS ────────────────────────────────
 function autoConnectSavedSessions() {
     const sessionsDir = path.join(__dirname, 'sessions');
