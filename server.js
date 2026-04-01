@@ -17,6 +17,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET || 'change_this_secret';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:3000';
+const SESSIONS_DIR = process.env.WA_SESSIONS_DIR || path.join(__dirname, 'sessions');
 
 app.use(cors({ origin: '*' }));
 app.use(express.json());
@@ -42,7 +43,7 @@ function getSessionData(sessionId) {
 
 // ── Hapus session folder ─────────────────────────────────
 function clearAuthSession(sessionId) {
-    const authDir = path.join(__dirname, 'sessions', sessionId);
+    const authDir = path.join(SESSIONS_DIR, sessionId);
     if (fs.existsSync(authDir)) {
         fs.readdirSync(authDir).forEach(file => {
             try { fs.unlinkSync(path.join(authDir, file)); } catch (_) {}
@@ -66,7 +67,7 @@ async function connectToWhatsApp(sessionId = 'default') {
 
     try {
 
-    const authDir = path.join(__dirname, 'sessions', sessionId);
+    const authDir = path.join(SESSIONS_DIR, sessionId);
     // Ensure dir exists
     if (!fs.existsSync(authDir)) {
         fs.mkdirSync(authDir, { recursive: true });
@@ -153,7 +154,13 @@ async function connectToWhatsApp(sessionId = 'default') {
 
 // ── Middleware: Validasi Internal Secret ─────────────────
 function validateSecret(req, res, next) {
-    const secret = req.headers['x-internal-secret'];
+    // Sesuai standarisasi arsitektur baru, kita pakai header 'Authorization'
+    // fallback ke x-internal-secret untuk backwards compatibility
+    const headerAuth = req.headers['authorization'];
+    const secret = (headerAuth && headerAuth.startsWith('Bearer ')) 
+        ? headerAuth.split(' ')[1] 
+        : headerAuth || req.headers['x-internal-secret'];
+
     if (secret !== INTERNAL_SECRET) {
         return res.status(403).json({ message: 'Unauthorized.' });
     }
@@ -464,7 +471,7 @@ app.get('/qr-web', (req, res) => {
 
 // ── RECOVERY OLD SESSIONS ────────────────────────────────
 function autoConnectSavedSessions() {
-    const sessionsDir = path.join(__dirname, 'sessions');
+    const sessionsDir = SESSIONS_DIR;
     if (!fs.existsSync(sessionsDir)) return;
     
     const dirs = fs.readdirSync(sessionsDir, { withFileTypes: true })
@@ -488,11 +495,11 @@ app.listen(PORT, () => {
     
     // Convert old single auth_info_baileys to multi-tenant 'default' if it exists and 'sessions/default' doesn't
     const oldAuthPath = path.join(__dirname, 'auth_info_baileys');
-    const newDefaultPath = path.join(__dirname, 'sessions', 'default');
+    const newDefaultPath = path.join(SESSIONS_DIR, 'default');
     if (fs.existsSync(oldAuthPath)) {
         if (!fs.existsSync(newDefaultPath)) {
             console.log('📦 Migrating old auth_info_baileys to sessions/default...');
-            fs.mkdirSync(path.join(__dirname, 'sessions'), { recursive: true });
+            fs.mkdirSync(SESSIONS_DIR, { recursive: true });
             fs.renameSync(oldAuthPath, newDefaultPath);
         } else {
             // cleanup old path if already migrated
