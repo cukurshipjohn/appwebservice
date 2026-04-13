@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const cron = require('node-cron');
 const {
     default: makeWASocket,
     DisconnectReason,
@@ -14,10 +15,12 @@ const QRCode = require('qrcode');
 const pino = require('pino');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT            = process.env.PORT || 3001;
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET || 'change_this_secret';
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:3000';
-const SESSIONS_DIR = process.env.WA_SESSIONS_DIR || path.join(__dirname, 'sessions');
+const ALLOWED_ORIGIN  = process.env.ALLOWED_ORIGIN  || 'http://localhost:3000';
+const SESSIONS_DIR    = process.env.WA_SESSIONS_DIR  || path.join(__dirname, 'sessions');
+const NEXTJS_URL      = process.env.NEXTJS_URL       || 'https://cukurship.id';
+const CRON_SECRET     = process.env.CRON_SECRET      || '';
 
 app.use(cors({ origin: '*' }));
 app.use(express.json());
@@ -512,6 +515,25 @@ app.listen(PORT, () => {
     
     // Reconnect other saved sessions
     autoConnectSavedSessions();
+
+    // ── Booking Reminder Cron ─────────────────────────────────────────
+    // Jalankan setiap 5 menit: panggil Next.js route yang query booking
+    // yang mulai dalam 55–65 menit dan kirim WA reminder ke pelanggan.
+    cron.schedule('*/5 * * * *', async () => {
+        try {
+            const res = await fetch(`${NEXTJS_URL}/api/cron/booking-reminders`, {
+                method:  'POST',
+                headers: { 'x-cron-secret': CRON_SECRET },
+            });
+            const data = await res.json();
+            if (data.sent > 0) {
+                console.log(`⏰ [cron] Booking reminder: ${data.sent} terkirim dari ${data.checked} booking`);
+            }
+        } catch (err) {
+            console.error('❌ [cron] Booking reminder error:', err.message);
+        }
+    });
+    console.log('⏰ [cron] Booking reminder scheduler aktif (setiap 5 menit)');
 });
 
 // ── Global Safety Net ────────────────────────────────────
