@@ -317,7 +317,7 @@ app.post('/send-message', validateSecret, async (req, res) => {
 
 // Kirim OTP via WhatsApp
 app.post('/send-otp', validateSecret, async (req, res) => {
-    const { session_id, phoneNumber, otpCode } = req.body;
+    const { session_id, phoneNumber, otpCode, portalType, shopName } = req.body;
 
     if (!phoneNumber || !otpCode) {
         return res.status(400).json({ message: 'phoneNumber dan otpCode diperlukan.' });
@@ -334,11 +334,40 @@ app.post('/send-otp', validateSecret, async (req, res) => {
 
     try {
         const jid = formatPhoneForWA(phoneNumber);
-        const message =
-            `🔐 *Kode OTP Haircut Booking Anda:*\n\n` +
-            `*${otpCode}*\n\n` +
-            `⏱️ Berlaku selama *5 menit*.\n` +
-            `⚠️ Jangan bagikan kode ini ke siapapun.`;
+        const footer = `\n\n⏱️ Berlaku *10 menit*.\n⚠️ Jangan bagikan kode ini ke siapapun.`;
+
+        const templates = {
+            customer: (
+                `📱 *Kode OTP Booking ${shopName || 'CukurShip'}*\n\n` +
+                `Halo! Berikut kode login kamu:\n\n` +
+                `*${otpCode}*` + footer
+            ),
+            admin: (
+                `🔑 *Kode OTP Panel Admin*\n\n` +
+                `Kode verifikasi untuk masuk ke Dashboard Admin:\n\n` +
+                `*${otpCode}*` + footer
+            ),
+            superadmin: (
+                `🛡️ *Kode OTP Superadmin CukurShip*\n\n` +
+                `Kode akses Platform Control:\n\n` +
+                `*${otpCode}*` + footer
+            ),
+            pos: (
+                `🖥️ *Kode OTP Kasir POS*\n\n` +
+                `Kode login untuk masuk ke sistem kasir:\n\n` +
+                `*${otpCode}*` + footer
+            ),
+            affiliate: (
+                `💼 *Kode OTP Portal Affiliator CukurShip*\n\n` +
+                `Kode login ke dashboard affiliator kamu:\n\n` +
+                `*${otpCode}*` + footer
+            ),
+        };
+
+        const message = templates[portalType] || (
+            `🔐 *Kode OTP CukurShip*\n\n` +
+            `*${otpCode}*` + footer
+        );
 
         const sendMessagePromise = sock.sendMessage(jid, { text: message });
         const timeoutPromise = new Promise((_, reject) =>
