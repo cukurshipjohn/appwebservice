@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "WhatsApp OTP microservice using Baileys for haircut booking app",
   "main": "server.js",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch-path=server.js server.js"
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.18",

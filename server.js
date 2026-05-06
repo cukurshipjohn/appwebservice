@@ -1,18 +1,23 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
-const cron = require('node-cron');
-const {
-    default: makeWASocket,
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import cron from 'node-cron';
+import {
+    default as makeWASocket,
     DisconnectReason,
     useMultiFileAuthState,
     fetchLatestBaileysVersion,
     jidNormalizedUser,
-} = require('@whiskeysockets/baileys');
-const QRCode = require('qrcode');
-const pino = require('pino');
+} from '@whiskeysockets/baileys';
+import QRCode from 'qrcode';
+import pino from 'pino';
+
+// ESM doesn't have __dirname — recreate it
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT            = process.env.PORT || 3001;
@@ -405,7 +410,7 @@ app.get('/health', (req, res) => {
 //   → Saat WA belum konek, superadmin tidak bisa login ke Next.js (butuh OTP via WA)
 //   → Dengan endpoint ini, cukup akses URL Railway + secret di browser → QR langsung terlihat
 //   → Dilindungi INTERNAL_SECRET di query param → tidak bisa diakses publik
-// Cara akses: https://your-railway-url.railway.app/qr-web?secret=INTERNAL_SECRET
+// Cara akses: https://your-coolify-url/qr-web?secret=INTERNAL_SECRET
 app.get('/qr-web', (req, res) => {
     const { secret, session_id = 'default' } = req.query;
 
@@ -515,7 +520,7 @@ function autoConnectSavedSessions() {
         if (sid === 'default') continue;
         // Only connect if there are creds.json inside
         if (fs.existsSync(path.join(sessionsDir, sid, 'creds.json'))) {
-            console.log(`\ud83d\udd04 Auto-connecting saved session: ${sid}`);
+            console.log(`🔄 Auto-connecting saved session: ${sid}`);
             connectToWhatsApp(sid);
         }
     }
