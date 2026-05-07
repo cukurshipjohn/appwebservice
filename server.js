@@ -393,6 +393,11 @@ app.post('/send-otp', validateSecret, async (req, res) => {
     }
 });
 
+// Basic root route to prevent 404 on PaaS healthchecks
+app.get('/', (req, res) => {
+    res.send('WhatsApp Microservice is running');
+});
+
 // Health check
 app.get('/health', (req, res) => {
     const defaultData = getSessionData('default');
