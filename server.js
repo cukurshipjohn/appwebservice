@@ -527,7 +527,7 @@ function autoConnectSavedSessions() {
 }
 
 // ── Start Server ─────────────────────────────────────────
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🚀 Multitenant WhatsApp Service berjalan di port ${PORT}`);
     
     // Convert old single auth_info_baileys to multi-tenant 'default' if it exists and 'sessions/default' doesn't
